@@ -1,0 +1,90 @@
+---
+title: "Machine Learning Assignment"
+author: "iklukic"
+date: "Monday, February 09, 2015"
+output: html_document
+---
+
+###Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+###Data Set Acquisition
+
+To start with, the training and the testing data sets, as defined by the assignment were downloaded to the working directory. Additional libraries were also loaded (caret, tree).
+```{r, echo=FALSE}
+library(caret)
+library(tree)
+setwd("D:/R//machine")
+file.url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#download.file(file.url, "training.csv")
+training <- read.csv("training.csv")
+file.url <-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#download.file(file.url, "testing.csv")
+testing <- read.csv("testing.csv")
+```
+
+###Preparation of Clean Data Set
+
+Exploratory analysis reviled that both data sets are burdened by high fraction of missing (NA) data. For instance, the training data set soncsist of `r dim(training)[[1]]` observations of `r dim(training)[[2]]` variables, while there are only `r sum(complete.cases(training))` complete cases (i.e. `r sum(complete.cases(training))/(dim(training)[[1]])*100` %).
+```{r, echo=FALSE}
+tmp <- training[,colSums(is.na(training)) == 0]
+training <- tmp
+```
+The training data set was then processed in the following manner: all the variables (columns) with any missing values were dropped, leaving a total of `r dim(training)[2]` variables. Continuing with exploratory analysis, it was noted that certain types of variables contain entries like "#DIV/0!" or empty entries "". All of those were factor variables. Furthermore, it was determined that the only informative factor column is "classe" (e.g. "user_name" and "timestamp" should not be considered informative in the present context). Therefore, only numeric on integer columns were kept for furhter analysis.
+```{r, echo=FALSE}
+classe <- training$classe
+temp <- training
+temp.numeric <- temp[,sapply(temp, is.numeric)]
+new.train <- data.frame(classe, temp.numeric)
+new.train <- subset(new.train, select=-c(2:4))
+```
+The resulting data frame (based on the original training data set) had `r dim(new.train)[[1]]` rows and `r dim(new.train)[[2]]` columns.
+
+###Cross Validation
+
+Having the number of observations in the data set in mind, it was decided to "sacrifice" some of them and create an "internal" testing set, which will be used to assess the preformance of the classification algorithm, prior to the submission of the final result. The internal testing set consided of 30% of randomly assigned observations. The seed was set to 1, to enable reproducibility. The remaining part of the original training set will be refered to as the final trainig set.
+```{r, echo=FALSE}
+set.seed(1)
+inTrain <- createDataPartition(y=new.train$classe, p=0.7, list=FALSE)
+train.int <- new.train[inTrain,]
+test.int <- new.train[-inTrain,]
+```
+To summarise, the classifier will be build on the set with `r dim(train.int)[[1]]` observations, while the performance will be assessed on the set with `r dim(test.int)[[1]]` observations.
+
+###Classifying by Classification Tree
+
+For this exercise, classification tree (with tree package) was chosen as the algorithm. The model built with the "classe" as response variable (=barbell lifts) and all the other variables in the final training set as predictors. The figure below shows the resulting classifiaction tree (labels not show for simplicity, due to high number of terminal nodes).
+
+```{r, echo=FALSE}
+tree.model <- tree(classe~., data=train.int)
+plot(tree.model)
+#text(tree.model, pretty=0)
+mtext("Classification Tree", side=3, cex=1)
+```
+
+Next, the performance of the tree was assessed by using the internal testing set (confusion matrix below).
+```{r, echo=FALSE}
+tree.pred <- predict(tree.model, test.int, type="class")
+matrica <- confusionMatrix(tree.pred, test.int$classe)
+matrica
+```
+The accuracy calculated on the basis of a confusion matrix turned out to be modest, i.e. `r round(matrica$overall[[1]]*100, 2)` %, albeit still better than predicting by chance (25% in the current example).
+
+###Tree Pruning
+
+Next, tree pruning was considered as a method to improve results. The chozen function was cv.tree(), which uses cross-validation to determine the optimal complexity. Moreover, the argument FUN=prune.misclass was passed to the function, to guide the cross-validation and pruning process by the classification error rate. The seed was set to 2.
+```{r, echo=FALSE}
+set.seed(2)
+cv.classe <- cv.tree(tree.model, FUN=prune.misclass)
+plot(cv.classe$size, cv.classe$dev, ylab="cross validation error rate", xlab="tree size [terminal nodes]", main="Tree pruning", type="b")
+prune.classe <- prune.misclass(tree.model, best=12)
+prune.pred <- predict(prune.classe, test.int, type="class")
+matrica.p <- confusionMatrix(prune.pred, test.int$classe)
+```
+
+By evaluating the tree prune plot (above), it seems that the tree with 12 nodes might be a compromise between the size and the accuracy. However, assessment with the internal test set reviled accuracy of `r round(matrica.p$overall[[1]]*100, 2)` %. Although the number of terminal nodes was reduced from 22 (original tree) to 15 (after pruning), the loss of accuracy seems to hight.
+
+Therefore, the initial tree will be used for the final grading of the assignment.
+
+###Acknowledgement
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
